@@ -15,7 +15,7 @@ Other write-ups that are worth mentioning them:
 Running the binary shows some plaintext which is then cyphered, printed,
 decyphered and printed again.  The goal seems to find the AES key:
 
-```
+```sh
 r2@57f5b63ba13a prequals-rhme3 $ ./antir2
 *******************************************
 * Radare2con 2017 rhme3 pre-quals edition *
