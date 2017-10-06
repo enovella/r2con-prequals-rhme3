@@ -740,11 +740,11 @@ Checking the arguments of the function, we can confirm in the debugger that `loc
 
 This function takes the following params:
 
-    1) Arg 1 (rdi): The plain text string (@ `0x4e1b90`) `"Get the aeskey!!r<< Can you r2 me?\n\n"`
-    2) Arg 2 (rsi): Based on our trace, the encrypted string should be stored in this address (`local_40h`).
-    3) Arg 3 (rdx): The value `0x10` (the size of the encrypted string).
-    4) Arg 4 (rcx): Other variable `local_148h`.
-    5) Arg 5 (r8): Other variable `local_30h`.
+    1) Arg 1 (rdi): The plain text string (@ `0x4e1b90) "Get the aeskey!!r<< Can you r2 me?\n\n"
+    2) Arg 2 (rsi): Based on our trace, the encrypted string should be stored in this address (local_40h).
+    3) Arg 3 (rdx): The value 0x10 (the size of the encrypted string).
+    4) Arg 4 (rcx): Other variable local_148h.
+    5) Arg 5 (r8): Other variable local_30h.
     6) Arg 6 (r9): The value 1.
 
 It looks like the encryption function we were looking for!! It receives as parameter the plaintext, the size and the address to store the encrypted string. So any of the other params (`rcx` or `r8`) should contain the encryption key. Let's confirm it with the debugger:
