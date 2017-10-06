@@ -1,13 +1,13 @@
 
-During the RadareCON 2017 in Barcelona a binary to win a RHme3 board was provided. The binary was an OLLVM obfuscated binary with some anti-debugging and anti-hooking techniques to thwart reversers. Thus the binary was named `antir2`.
+During the RadareCON 2017, a pre-qualification binary was provided to obtain a RHme3 board. The binary was an `OLLVM` obfuscated binary with some anti-debugging and anti-hooking techniques to thwart r2 reversers. The binary was named `antir2`.
 
 The following r2con attendants solved the challenge:
   - Cyrill Leutwiler
   - Roberto Gutierrez
   - Quentin Casasnovas
-
-Other write-ups that are worth mentioning them:
   - Irdeto team (Jonathan Beverley, Colin deWinter, Ben Gardiner)
+
+Other non-Radare2 write-up that is worth mentioning it:
   - Vegard Nossum
 
 
