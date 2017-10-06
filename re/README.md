@@ -551,9 +551,246 @@ The key is `radare2con4ever!`.
 
 # Write-up by Roberto Gutierrez
 
-Blah blah
 
-# Write-up by Irdeto guys (Jonathan Beverley, Colin deWinter, Ben Gardiner)
+Let's inspect a bit the binary:
+
+```sh
+$ rabin2 -I antir2
+arch     x86
+binsz    1200746
+bintype  elf
+bits     64
+canary   false
+class    ELF64
+crypto   false
+endian   little
+havecode true
+lang     c
+linenum  false
+lsyms    false
+machine  AMD x86-64 architecture
+maxopsz  16
+minopsz  1
+nx       true
+os       linux
+pcalign  0
+pic      false
+relocs   false
+rpath    NONE
+static   true
+stripped true
+subsys   linux
+va       true
+```
+
+So we have a static ELF x64 with no symbols. if we execute it, we get the following output:
+
+```sh
+$ ./antir2
+*******************************************
+* Radare2con 2017 rhme3 pre-quals edition *
+*******************************************
+
+r<< Can you r2 me?
+
+Plaintext : 47 65 74 20 74 68 65 20 61 65 73 6B 65 79 21 21
+Encrypted : FD DA 9B 78 FC F8 E9 BF 33 72 6E 0A 8A E5 F6 8C
+Decrypted : 47 65 74 20 74 68 65 20 61 65 73 6B 65 79 21 21
+```
+
+It seems that the objective is to find the encryption key. Let's open IDA Pro and load the bina....just kidding :) The first idea is to debug the binary and trace the key, but If you try, you will get this annoying message...
+
+```sh
+$ r2 -d antir2
+[0x004008c0]> dc
+Selecting and continuing: 30699
+*******************************************
+* Radare2con 2017 rhme3 pre-quals edition *
+*******************************************
+
+r2 in debug mode won't help you much! ha ha ha...... :)
+PTRACE_EVENT_EXIT pid=30699, status=0x0
+[0x00484b88]>
+```
+It seems we will need to deal with some kind of anti-debugging trick. Let's start the analysis:
+
+```sh
+$ r2 -Aw antir2
+```
+
+Taking a look into the code, immediately we realise that there's something wrong...the main function apparently is huge, there are a lot of conditional and unconditional jumps and radare stop responding when we open the graph mode. Interesting...
+
+ Definitely the code is obfuscated or it contains some kind of anti-disassemble tricks. After some minutes reviewing the code, I found a string that confirms the obfuscator used:
+
+```sh
+Obfuscator-LLVM clang version 4.0.1  (based on Obfuscator-LLVM 4.0.1)
+```
+
+With the obfuscation, the automatic analysis of radare fails to detect the boundaries of the functions. Let's fix that manually.
+
+In visual mode, let's go down in the main function until the start of the next function. Just after printing the strings "Plaintext", "Encrypted" and "Decrypted", it's easy to identify the preamble of the next function:
+
+```sh
+[0x004009e0]> s 0x400cdb
+[0x00400cdb]> pd 4 @ $$-5
+│              ; JMP XREF from 0x00400cc0 (main)
+│           0x00400cd6      e855830800     CALL fcn.00489030
+│           0x00400cdb      0f1f440000     NOP DWORD [RAX + RAX]
+│
+│              ; XREFS: CALL 0x00400a74  CALL 0x00400a86  CALL 0x00400bbe  CALL 0x00400bca  CALL 0x00400b2c  CALL 0x00400b3b
+│           0x00400ce0      55             PUSH RBP
+│           0x00400ce1      4889e5         MOV RBP, RSP
+[0x00400cdb]>
+```
+
+Now we can define  the end of the main function manually.  Some useful commands in visual mode:
+
+```sh
+de : set the end of the function
+df : analyze the next function
+dr : rename the function
+```
+Move the cursor to 0x00400cdb, press 'de' , then move the cursor one instruction down (0x00400ce0) and then press 'df'.
+
+```sh
+# In visual mode
+o 0x00400cdb  # NOP DWORD [RAX + RAX]
+de # sets the end of the main function
+j  # seek next instruction
+df # defines the start of the next function
+```
+
+Probably this is not the best way to do it, but the trick works here and now it's possible to open the main function in the graph mode without problems.
+
+```sh
+[0x00400cdb]> s main
+[0x004009e0]> VV
+```
+
+After that, I did the same with all the functions called in the main (that were not detected properly). The typical function prologue and the Xrefs can be used to clearly identify the boundaries of the functions. In less than one minute you can have all the necessary functions well defined.
+
+Now, it's time to get ride of the anti-debugging tricks. Let's locate the text message below:
+
+```sh
+[0x004009e0]> iz~debug
+vaddr=0x004e1c67 paddr=0x000e1c67 ordinal=009 sz=57 len=56 section=.rodata type=ascii string=r2 in debug mode won't help you much! ha ha ha...... :)\n
+```
+Find where the anti-dbg string is used.
+
+```sh
+[0x00400b88]> axt 0x004e1c67
+data 0x421208 movabs rdi, str.r2_in_debug_mode_won_t_help_you_much__ha_ha_ha......_:__n in fcn.00418db0
+data 0x41f9e4 movabs rdi, str.r2_in_debug_mode_won_t_help_you_much__ha_ha_ha......_:__n in fcn.00418db0
+```
+
+Let's patch the function fcn.00418db0 then:
+
+```sh
+[0x00421208]> s fcn.00418db0
+[0x00418db0]> wa ret
+Written 1 bytes (ret) = wx c3
+```
+
+Now there won't be problems to run the debugger. The binary contains other anti-reversing tricks, but you can follow the same procedure to find and patch those functions using the below messages:
+
+```sh
+vaddr=0x004e1ca0 paddr=0x000e1ca0 ordinal=010 sz=31 len=30 section=.rodata type=ascii string=Breakpoint detected @ %p+%x !\n
+vaddr=0x004e1cbf paddr=0x000e1cbf ordinal=011 sz=16 len=15 section=.rodata type=ascii string=/proc/self/maps
+vaddr=0x004e1ccf paddr=0x000e1ccf ordinal=012 sz=6 len=5 section=.rodata type=ascii string=frida
+vaddr=0x004e1cd5 paddr=0x000e1cd5 ordinal=013 sz=49 len=48 section=.rodata type=ascii string=Damn it! You're so shady! h00king isn't allowed\n
+```
+
+With the debugger ready, the objective is to identify the encryption function and stop the execution somewhere before to obtain the encryption key. My approach was pretty simple, locate where the program prints the encrypted string and trace it back until the encryption function.
+
+```sh
+[0x00400c7e]> iz~Encrypted
+vaddr=0x004e1bbf paddr=0x000e1bbf ordinal=002 sz=10 len=9 section=.rodata type=ascii string=Encrypted
+
+[0x00400c7e]> axt 0x4e1bbf
+data 0x400c7e mov eax, str.Encrypted in main
+
+[0x00400c7e]> s 0x400c7e
+[0x00400c7e]> pd 5
+│           0x00400c7e      b8bf1b4e00     MOV EAX, str.Encrypted      ; 0x4e1bbf ; "Encrypted"
+│           0x00400c83      89c7           MOV EDI, EAX
+│           0x00400c85      488bb568fdff.  MOV RSI, QWORD [LOCAL_298H]
+│           0x00400c8c      8b954cfdffff   MOV EDX, DWORD [LOCAL_2B4H]
+│           0x00400c92      e8a90a0100     CALL fcn.00411740
+```
+Checking the arguments of the function, we can confirm in the debugger that `local_298h`  contains the encrypted string. Let's trace back this value until we find the encryption function.
+
+```sh
+# Previously "local_298h" is used here:
+0x00400c03      4889bd68fdff.  MOV QWORD [LOCAL_298H], RDI
+
+# Tracing back the value of rdi. It's set here:
+0x00400bf5      488d7dc0       LEA RDI, [LOCAL_40H]
+
+# Going back the value of local_40h. It is used as a param in the following call:
+
+│       │   0x00400b6a      48bf901b4e00.  MOVABS RDI, 0x4E1B90        ; 0x4e1b90 ; "Get the aeskey!!r<< Can you r2 me?\n\n"
+│       │   0x00400b74      b810000000     MOV EAX, 0x10
+│       │   0x00400b79      89c2           MOV EDX, EAX
+│       │   0x00400b7b      488d8db8feff.  LEA RCX, [LOCAL_148H]
+│       │   0x00400b82      41b901000000   MOV R9D, 1
+│       │   0x00400b88      4c8d45d0       LEA R8, [LOCAL_30H]
+│       │   0x00400b8c      488d75c0       LEA RSI, [LOCAL_40H]
+│       │   0x00400b90      e8fbc10200     CALL fcn.0042cd90           ;[3]
+```
+
+This function takes the following params:
+
+    1) Arg 1 (rdi): The plain text string (@ `0x4e1b90`) `"Get the aeskey!!r<< Can you r2 me?\n\n"`
+    2) Arg 2 (rsi): Based on our trace, the encrypted string should be stored in this address (`local_40h`).
+    3) Arg 3 (rdx): The value `0x10` (the size of the encrypted string).
+    4) Arg 4 (rcx): Other variable `local_148h`.
+    5) Arg 5 (r8): Other variable `local_30h`.
+    6) Arg 6 (r9): The value 1.
+
+It looks like the encryption function we were looking for!! It receives as parameter the plaintext, the size and the address to store the encrypted string. So any of the other params (`rcx` or `r8`) should contain the encryption key. Let's confirm it with the debugger:
+
+```sh
+
+[0x004008c0]> db 0x00400b90 # Breakpoint in the call
+[0x004008c0]> dc
+Selecting and continuing: 32381
+*******************************************
+* Radare2con 2017 rhme3 pre-quals edition *
+*******************************************
+
+hit breakpoint at: 400b90
+[0x00400b90]>
+[0x00400b2c]> drr
+   rax 0x0000000000000010  (.comment) rdx
+   rbx 0x00000000004002b8  (.init) (/home/ictsec/security/challenges/r2con-prequals-rhme3/re/antir2_mod) rbx program R X 'sub rsp, 8' 'antir2_mod'
+   rcx 0x00007ffc92697768  rcx stack R W 0x6332657261646172 --> ascii
+   rdx 0x0000000000000010  (.comment) rdx
+    r8 0x00007ffc92697880  r8 stack R W 0x0 --> r15
+    r9 0x0000000000000001  (.comment) r11
+   r10 0x0000000000000000  r15
+   r11 0x0000000000000001  (.comment) r11
+   r12 0x000000000043db60  (.text) (/home/ictsec/security/challenges/r2con-prequals-rhme3/re/antir2_mod) r12 program R X 'push r14' 'antir2_mod'
+   r13 0x000000000043dbf0  (.text) (/home/ictsec/security/challenges/r2con-prequals-rhme3/re/antir2_mod) r13 program R X 'push rbx' 'antir2_mod'
+   r14 0x0000000000000000  r15
+   r15 0x0000000000000000  r15
+   rsi 0x00007ffc92697870  rsi stack R W 0x1 --> (.comment) r11
+   rdi 0x00000000004e1b90  (.rodata) (/home/ictsec/security/challenges/r2con-prequals-rhme3/re/antir2_mod) rdi program R X 'je 0x4e1bb4' 'antir2_mod' (Get the aeskey!!r<< Can you r2 me?
+
+)
+
+[0x00400b2c]> pxr @ rcx
+0x7ffc92697768  0x6332657261646172   radare2c @rcx ascii
+0x7ffc92697770  0x2172657665346e6f   on4ever! ascii
+0x7ffc92697778  0x3aab444c5999213e   >!.YLD.:
+0x7ffc92697780  0x7eed4f555f9f2a23   #*._UO.~
+0x7ffc92697788  0x9fc130f4a56a74b8   .tj..0..
+```
+
+And here it is, the encryption key: `"radare2con4ever!"`.
+
+
+
+# Write-up by Irdeto team (Jonathan Beverley, Colin deWinter, Ben Gardiner)
 
 * Open challenge binary and analyze it
 
